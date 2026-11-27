@@ -15,7 +15,7 @@ const TOTAL_PAIRS = PAIR_QUESTIONS.length;
 const TOTAL_STEPS = TOTAL + TOTAL_PAIRS;
 
 // v2 改写了 Fi/Fe 的 15 道题（第 46–60 题）。旧作答只保留前 45 题，
-// 让老用户补答改写的题目和 8 组对照，而不是沿用已经失真的旧答案。
+// 让老用户补答改写的题目和 9 组对照，而不是沿用已经失真的旧答案。
 function migrateOldData() {
   if (storageGet(LS_VERSION) === CURRENT_VERSION) return;
   let raw = null;
@@ -192,11 +192,11 @@ function homeView() {
         <div class="hero-copy">
           <div class="eyebrow">Jung · 8 Cognitive Functions</div>
           <h1 class="h1">荣格八维<br><span class="hl">人格测试</span></h1>
-          <p class="lede">60 道贴近中国日常的情境题，加 8 组相邻功能对照，测量你在 Ne、Ni、Se、Si、Te、Ti、Fe、Fi 八种认知功能上的真实倾向，并匹配你的十六型人格。不是给你贴标签，而是让你看清自己最顺手的思维方式。</p>
+          <p class="lede">60 道贴近中国日常的情境题，加 9 组相邻功能对照，测量你在 Ne、Ni、Se、Si、Te、Ti、Fe、Fi 八种认知功能上的真实倾向，并匹配你的十六型人格。不是给你贴标签，而是让你看清自己最顺手的思维方式。</p>
           <div class="meta-row">
             <span class="pill"><i class="pill-dot"></i><b>60</b> 道情境题</span>
             <span class="pill"><i class="pill-dot"></i><b>8</b> 组功能对照</span>
-            <span class="pill"><i class="pill-dot"></i>约 <b>9</b> 分钟</span>
+            <span class="pill"><i class="pill-dot"></i>约 <b>10</b> 分钟</span>
             <span class="pill"><i class="pill-dot"></i>中国情境题库</span>
             <span class="pill"><i class="pill-dot"></i>十六型解读</span>
           </div>
@@ -253,7 +253,7 @@ function homeView() {
           <article class="step">
             <div class="step-num">02</div>
             <h3>系统计算八维</h3>
-            <p>每个功能由 7–8 道不同情境的题目共同测量；最后再用 8 组两两对照，校正“平时有没有机会做”带来的偏差。</p>
+            <p>每个功能由 7–8 道不同情境的题目共同测量；最后再用 9 组两两对照，校正“平时有没有机会做”带来的偏差。</p>
           </article>
           <article class="step">
             <div class="step-num">03</div>
@@ -269,7 +269,7 @@ function homeView() {
         <div class="cred-panel">
           <div>
             <h3>这份题库，经过模拟验证</h3>
-            <p>题目参考荣格《心理类型》的八维框架与中文同类型测试的题型经验，结合职场、家庭、人情往来等中国情境重写。我们用模拟答题者反复检验计分：八维得分与预设倾向的相关系数约 0.89；十六型逐型自测在普通个体差异下命中约 97%，更严格条件下约 83%。最后 8 组功能对照专门用来校正 Fi/Fe 等相邻功能的行为频率偏差。</p>
+            <p>题目参考荣格《心理类型》的八维框架与中文同类型测试的题型经验，结合职场、家庭、人情往来等中国情境重写。我们用模拟答题者反复检验计分：八维得分与预设倾向的相关系数约 0.89；十六型逐型自测在普通个体差异下命中约 97%，更严格条件下约 83%。最后 9 组功能对照专门用来校正 Fi/Fe、Ne/Fi 等相邻或主导顺序偏差。</p>
             <div style="margin-top:16px"><a class="btn btn-sm btn-ghost" href="#/about">查看测试说明与信度数据</a></div>
           </div>
           <div class="cred-stats">
@@ -292,7 +292,7 @@ function encouragement(i) {
   if (i < 40) return '过半了。如果有点累，可以退出休息，进度会保存。';
   if (i < 55) return '进入后半段，很多人的真实倾向会在这时更清晰。';
   if (i < TOTAL - 1) return '最后几题了，坚持一下。';
-  return '情境题最后一道，接下来还有 8 组快速对照。';
+  return '情境题最后一道，接下来还有 9 组快速对照。';
 }
 
 function testView() {
@@ -366,6 +366,7 @@ function pairView(pi) {
             <p>${pair.bText}</p>
           </div>
         </div>
+        ${pair.note ? `<p class="pair-note">${pair.note}</p>` : ''}
         <div class="options pair-options" role="group" aria-label="选择更像你的一句">
           ${[
             { value: 0, label: 'A 明显更像', hint: '很确定' },
@@ -393,7 +394,7 @@ function completeView() {
     <div class="test-shell">
       <div class="question-card" style="text-align:center;padding:56px 40px">
         <div class="q-index">ALL DONE</div>
-        <h1 class="q-text" style="min-height:0">60 题 + 8 组对照已完成</h1>
+        <h1 class="q-text" style="min-height:0">60 题 + 9 组对照已完成</h1>
         <p class="q-hint" style="margin-bottom:24px">你的八维画像已生成，去看看结果吧。</p>
         <button class="btn btn-primary btn-lg" data-result>查看我的结果 →</button>
         <div style="margin-top:14px"><button class="btn btn-quiet btn-sm" data-restart>重新测一次</button></div>
@@ -550,7 +551,7 @@ function resultView(demo = false) {
     return `<div class="result-view view"><div class="wrap">
       <div class="panel" style="text-align:center;padding:56px 32px">
         <h1 class="q-text" style="min-height:0">${text}</h1>
-        <p class="q-hint" style="margin-bottom:22px">完成 60 道情境题和 8 组功能对照后，才能生成八维画像。</p>
+        <p class="q-hint" style="margin-bottom:22px">完成 60 道情境题和 9 组功能对照后，才能生成八维画像。</p>
         <button class="btn btn-primary btn-lg" data-continue>继续完成 →</button>
       </div>
     </div></div>`;
@@ -628,8 +629,8 @@ function resultView(demo = false) {
       <section class="panel bars-panel">
         <div class="panel-head"><h2>八维分数</h2><span>相对强度 · 频率分 · 综合分</span></div>
         <div class="bars">${barsHTML(res)}</div>
-        <p class="result-note">“相对强度”是把你的八个维度放在一起比较后的排序分数，便于看清主次；“频率分”是 60 道情境题的绝对倾向；“综合分”是频率分与 8 组对照按 28% 权重合成后的分数，用于类型匹配。分数不是能力高低，类型也只代表当前最贴合的功能组合，会随阶段与情境变化。</p>
-        <p class="result-note">本次结果${res.pairApplied ? '已结合最后 8 组功能对照，对行为频率题的情境偏差做了校正。' : '仅按 60 道情境题计分。'}不同题库的题目与计分方式不同，结论有差异是正常的；<a href="#/about">可以看看为什么和 APESK 等测试不一样</a>。</p>
+        <p class="result-note">“相对强度”是把你的八个维度放在一起比较后的排序分数，便于看清主次；“频率分”是 60 道情境题的绝对倾向；“综合分”是频率分与 9 组对照按 28% 权重合成后的分数，用于类型匹配。分数不是能力高低，类型也只代表当前最贴合的功能组合，会随阶段与情境变化。</p>
+        <p class="result-note">本次结果${res.pairApplied ? '已结合最后 9 组功能对照，对行为频率题的情境偏差做了校正。' : '仅按 60 道情境题计分。'}不同题库的题目与计分方式不同，结论有差异是正常的；<a href="#/about">可以看看为什么和 APESK 等测试不一样</a>。</p>
       </section>
 
       <div class="result-cta">
@@ -810,11 +811,11 @@ function aboutView() {
         <li>全部写成可观察的行为频率，而不是“你觉得自己是不是一个有远见的人”这类自我评价。</li>
         <li>情境取自中国日常：部门会议、家族聚餐、微信群讨论、长辈期待、临时邀约、内卷与选择。</li>
         <li>题目交错排列，降低连续同类型题目带来的作答惯性；不设置“正确答案”导向。</li>
-        <li>最后加 8 组“两句里选更像你的”功能对照，专门区分 Fi/Fe、Ne/Ni 等相邻功能，校正“最近有没有机会做”带来的偏差。</li>
+        <li>最后加 9 组“两句里选更像你的”功能对照，专门区分 Fi/Fe、Ne/Ni、Ne/Fi 等相邻功能或主导顺序，校正“最近有没有机会做”带来的偏差。</li>
       </ul>
 
       <h2>怎么计分</h2>
-      <p>每题按“从不—总是”记为 0–4 分，同一功能的题目相加后换算为 0–100 的行为频率分。最后 8 组对照题让相邻功能直接竞争，按 28% 的权重与频率分合成最终八维分；再把这八维曲线与十六型的“功能权重模板”逐一做相关匹配，匹配度最高的类型就是本次结果。</p>
+      <p>每题按“从不—总是”记为 0–4 分，同一功能的题目相加后换算为 0–100 的行为频率分。最后 9 组对照题让相邻功能直接竞争，按 28% 的权重与频率分合成最终八维分；再把这八维曲线与十六型的“功能权重模板”逐一做相关匹配，匹配度最高的类型就是本次结果。</p>
       <p>结果页同时给出“相对强度”：把你自己的八个维度放在一起排序并映射到 46–97，便于一眼看出主次。原始分数则保留绝对倾向。两者结合看，比单看一个数字更可靠。</p>
 
       <h2>为什么和 APESK 等测试可能不一样？</h2>
@@ -824,7 +825,7 @@ function aboutView() {
         <li><b>行为频率不等于功能偏好。</b>你可能“心里很在意别人”，但实际很少主动组织饭局；也可能“很有自己的原则”，但平时并不需要为它跟人冲突。频率题会漏掉这些“有机会才会表现出来”的倾向。</li>
         <li><b>类型是连续谱上的相对排序，不是诊断。</b>相邻类型（如 ENFJ/ESFJ、INFP/ENFP）本来就只差一两个功能顺序，前两名都值得读。</li>
       </ul>
-      <p>这次升级新增了 8 组功能对照，正是为了减少这种偏差。如果你在 APESK 上是 Fe 高、Fi 低，而在本测试里 Fi 高，建议用新版重测一次；对照题会把“内心价值”与“照顾气氛”放在一起直接比较，结果通常会更接近你的真实感受。</p>
+      <p>这次升级新增了 9 组功能对照，正是为了减少这种偏差。其中第 9 组专门比较 Ne 与 Fi 的先后顺序，用来区分 ENFP 与 INFP：两者共用 Ne、Fi、Te、Si，只是主导与辅助的顺序不同。如果你在 APESK 上是 Fe 高、Fi 低，而在本测试里 Fi 高，建议用新版重测一次；对照题会把“内心价值”与“照顾气氛”放在一起直接比较，结果通常会更接近你的真实感受。</p>
 
       <h2>模拟验证</h2>
       <p>为了检查题库和计分是否“测得准”，我们用计算机生成带有已知功能倾向的模拟答题者，按真实作答的噪声水平反复作答，再看得出的类型是否回到已知类型。共进行数万次模拟：</p>
@@ -832,11 +833,11 @@ function aboutView() {
         <thead><tr><th>模拟条件</th><th>类型完全还原</th><th>真实类型进入前三</th><th>八维得分与潜在倾向相关</th></tr></thead>
         <tbody>
           <tr><td>理想剖面（无噪声）</td><td><b>16/16</b></td><td>100%</td><td>—</td></tr>
-          <tr><td>逐型自测（个体差异 σ=6）</td><td><b>97.0%</b></td><td>100%</td><td>0.88</td></tr>
-          <tr><td>逐型自测（个体差异 σ=12）</td><td><b>83.4%</b></td><td>99.1%</td><td>0.89</td></tr>
+          <tr><td>逐型自测（个体差异 σ=6）</td><td><b>96.8%</b></td><td>100%</td><td>0.89</td></tr>
+          <tr><td>逐型自测（个体差异 σ=12）</td><td><b>83.1%</b></td><td>98.8%</td><td>0.90</td></tr>
         </tbody>
       </table>
-      <p>在“Fe 主导者把 Fi 题打得偏高”的偏差场景中，没有对照题时 ENFJ/ESFJ 的命中率约 60%–80%；加入对照题后提升到约 75%–96%（取决于个体差异幅度）。这正是本次新增 8 组功能对照的原因。</p>
+      <p>在“Fe 主导者把 Fi 题打得偏高”的偏差场景中，没有对照题时 ENFJ/ESFJ 的命中率约 60%–78%；加入对照题后提升到约 72%–93%（取决于个体差异幅度）。这正是本次新增 9 组功能对照的原因。</p>
       <p style="font-size:12.5px;color:var(--faint)">模拟结果只能说明计分逻辑在该模型下稳定，不等于对真实个体的预测准确率；内部一致性仍需要用真实样本进一步复核。</p>
 
       <h2>请这样理解结果</h2>

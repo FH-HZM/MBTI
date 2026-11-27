@@ -1,4 +1,4 @@
-// 用 jsdom 跑关键答题流程：60 题 -> 8 组对照 -> 结果
+// 用 jsdom 跑关键答题流程：60 题 -> 9 组对照 -> 结果
 // 运行：node sim/flowcheck.mjs 1|2|3
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -28,7 +28,7 @@ for (const [key, value] of Object.entries({
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
 
 const answers = new Array(60).fill(2);
-const pairs = new Array(8).fill(null);
+const pairs = new Array(9).fill(null);
 
 if (testCase === '1') {
   answers[59] = null;
@@ -48,7 +48,7 @@ if (testCase === '1') {
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
 } else {
-  // 新版 60 题已完成，但还没做 8 组对照
+  // 新版 60 题已完成，但还没做 9 组对照
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
@@ -74,40 +74,40 @@ if (testCase === '1') {
   assert(text().includes('第 60 / 60 题'), '从第 60 题开始');
   click('.option[data-value="2"]');
   await wait(320);
-  assert(text().includes('功能对照 1 / 8'), '答完第 60 题后进入功能对照');
+  assert(text().includes('功能对照 1 / 9'), '答完第 60 题后进入功能对照');
   click('#prev-btn');
   await wait(30);
   assert(text().includes('第 60 / 60 题'), '对照第 1 题可以返回第 60 题');
   click('.option[data-value="2"]');
   await wait(320);
-  assert(text().includes('功能对照 1 / 8'), '再次答完第 60 题回到对照第 1 题');
-  for (let i = 0; i < 8; i += 1) {
-    assert(text().includes(`功能对照 ${i + 1} / 8`), `显示功能对照 ${i + 1}/8`);
+  assert(text().includes('功能对照 1 / 9'), '再次答完第 60 题回到对照第 1 题');
+  for (let i = 0; i < 9; i += 1) {
+    assert(text().includes(`功能对照 ${i + 1} / 9`), `显示功能对照 ${i + 1}/9`);
     click('.option[data-pair-value="0"]');
     await wait(320);
   }
   await wait(120);
-  assert(location.hash === '#/result', '完成 8 组对照后进入结果页');
-  assert(text().includes('八维雷达') && text().includes('对照校准 8/8'), '结果页显示雷达与对照校准标记');
+  assert(location.hash === '#/result', '完成 9 组对照后进入结果页');
+  assert(text().includes('八维雷达') && text().includes('对照校准 9/9'), '结果页显示雷达与对照校准标记');
   assert(!text().includes('还差'), '结果页不是未完成提示');
 } else if (testCase === '2') {
-  assert(text().includes('60 题 + 8 组对照已完成'), '全部完成后显示完成页');
+  assert(text().includes('60 题 + 9 组对照已完成'), '全部完成后显示完成页');
   click('[data-result]');
   await wait(120);
-  assert(text().includes('八维雷达') && text().includes('对照校准 8/8'), '完成页可以进入结果页');
+  assert(text().includes('八维雷达') && text().includes('对照校准 9/9'), '完成页可以进入结果页');
 } else if (testCase === '3') {
   const t = text();
   assert(t.includes('共 45 题已完成') || t.includes('第 46 题'), '旧版数据迁移后只保留前 45 题');
-  assert(!t.includes('还差 8 组功能对照'), '旧版数据不会直接跳到对照');
+  assert(!t.includes('还差 9 组功能对照'), '旧版数据不会直接跳到对照');
   click('[data-start]');
   await wait(120);
   assert(text().includes('第 46 / 60 题'), '旧版数据从第 46 题继续补答');
 } else {
   const t = text();
-  assert(t.includes('还差 8 组功能对照'), '新版 60 题完成后提示补做对照');
+  assert(t.includes('还差 9 组功能对照'), '新版 60 题完成后提示补做对照');
   assert(t.includes('继续功能对照'), '首页按钮显示继续功能对照');
   click('[data-start]');
   await wait(120);
-  assert(text().includes('功能对照 1 / 8'), '点击继续后直达对照第 1 题');
+  assert(text().includes('功能对照 1 / 9'), '点击继续后直达对照第 1 题');
 }
 console.log('CASE', testCase, 'OK');

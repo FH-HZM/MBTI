@@ -268,6 +268,7 @@ li { list-style: none; }
 }
 .pair-options { grid-template-columns: 1fr 1fr; margin-top: 24px; }
 .pair-options .option { padding: 13px 15px; }
+.pair-note { margin-top: 10px; font-size: 12.5px; color: var(--faint); text-align: center; }
 @media (max-width: 620px) {
   .pair-options { grid-template-columns: 1fr; }
   .pair-statement { padding: 15px 16px; }
