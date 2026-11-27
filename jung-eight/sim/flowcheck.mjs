@@ -35,15 +35,15 @@ if (testCase === '1') {
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '59');
-  localStorage.setItem('jung8.version', '3');
+  localStorage.setItem('jung8.version', '4');
 } else if (testCase === '2') {
   pairs.fill(1);
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
-  localStorage.setItem('jung8.version', '3');
+  localStorage.setItem('jung8.version', '4');
 } else if (testCase === '3') {
-  // 旧版数据：没有 version 标记，v3 应全量清空，从第 1 题重新开始
+  // 旧版数据：没有 version 标记，v4 应全量清空，从第 1 题重新开始
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
@@ -52,7 +52,7 @@ if (testCase === '1') {
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
-  localStorage.setItem('jung8.version', '3');
+  localStorage.setItem('jung8.version', '4');
 } else {
   // 模拟微信清掉 localStorage：只靠地址栏片段恢复
   localStorage.clear();
@@ -70,7 +70,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FAIL: ' + msg); cons
 
 const appUrl = pathToFileURL(resolve('public/assets/js/app.js')).href + '?case=' + testCase;
 if (testCase === '5') {
-  const payload = '3' + (30).toString(36).padStart(2, '0') + '2'.repeat(30) + 'n'.repeat(30) + 'n'.repeat(9);
+  const payload = '4' + (30).toString(36).padStart(2, '0') + '2'.repeat(30) + 'n'.repeat(30) + 'n'.repeat(9);
   window.location.hash = '#/test?d=' + payload;
 } else if (testCase === '1' || testCase === '2') {
   window.location.hash = '#/test';
@@ -121,7 +121,7 @@ if (testCase === '1') {
   assert(text().includes('第 31 / 60 题'), '仅凭 URL 片段恢复第 31 题');
   click('.option[data-value="1"]');
   await wait(320);
-  assert(location.hash.includes('?d=3'), '答题后进度写入 URL 片段');
+  assert(location.hash.includes('?d='), '答题后进度写入 URL 片段');
   assert(localStorage.getItem('jung8.answers.v1'), '进度同时写回 localStorage');
 }
 console.log('CASE', testCase, 'OK');

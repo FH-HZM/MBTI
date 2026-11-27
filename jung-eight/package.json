@@ -1,5 +1,8 @@
 {
   "name": "jung-eight",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "jsdom": "^29.1.1"
+  }
 }
