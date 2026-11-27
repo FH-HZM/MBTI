@@ -35,24 +35,27 @@ if (testCase === '1') {
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '59');
-  localStorage.setItem('jung8.version', '2');
+  localStorage.setItem('jung8.version', '3');
 } else if (testCase === '2') {
   pairs.fill(1);
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
-  localStorage.setItem('jung8.version', '2');
+  localStorage.setItem('jung8.version', '3');
 } else if (testCase === '3') {
-  // 旧版数据：没有 version 标记，应只保留前 45 题
+  // 旧版数据：没有 version 标记，v3 应全量清空，从第 1 题重新开始
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
-} else {
+} else if (testCase === '4') {
   // 新版 60 题已完成，但还没做 9 组对照
   localStorage.setItem('jung8.answers.v1', JSON.stringify(answers));
   localStorage.setItem('jung8.pairs.v1', JSON.stringify(pairs));
   localStorage.setItem('jung8.index.v1', '60');
-  localStorage.setItem('jung8.version', '2');
+  localStorage.setItem('jung8.version', '3');
+} else {
+  // 模拟微信清掉 localStorage：只靠地址栏片段恢复
+  localStorage.clear();
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -66,7 +69,12 @@ const click = (sel) => {
 const assert = (cond, msg) => { if (!cond) throw new Error('FAIL: ' + msg); console.log('PASS:', msg); };
 
 const appUrl = pathToFileURL(resolve('public/assets/js/app.js')).href + '?case=' + testCase;
-if (testCase === '1' || testCase === '2') window.location.hash = '#/test';
+if (testCase === '5') {
+  const payload = '3' + (30).toString(36).padStart(2, '0') + '2'.repeat(30) + 'n'.repeat(30) + 'n'.repeat(9);
+  window.location.hash = '#/test?d=' + payload;
+} else if (testCase === '1' || testCase === '2') {
+  window.location.hash = '#/test';
+}
 await import(appUrl);
 await wait(30);
 
@@ -97,17 +105,23 @@ if (testCase === '1') {
   assert(text().includes('八维雷达') && text().includes('对照校准 9/9'), '完成页可以进入结果页');
 } else if (testCase === '3') {
   const t = text();
-  assert(t.includes('共 45 题已完成') || t.includes('第 46 题'), '旧版数据迁移后只保留前 45 题');
-  assert(!t.includes('还差 9 组功能对照'), '旧版数据不会直接跳到对照');
+  assert(t.includes('开始测试'), 'v3 全量清空后显示开始测试');
+  assert(!t.includes('共 45 题已完成') && !t.includes('还差 9 组功能对照'), '不再保留旧版部分进度');
   click('[data-start]');
   await wait(120);
-  assert(text().includes('第 46 / 60 题'), '旧版数据从第 46 题继续补答');
-} else {
+  assert(text().includes('第 1 / 60 题'), '旧版数据从第 1 题重新开始');
+} else if (testCase === '4') {
   const t = text();
   assert(t.includes('还差 9 组功能对照'), '新版 60 题完成后提示补做对照');
   assert(t.includes('继续功能对照'), '首页按钮显示继续功能对照');
   click('[data-start]');
   await wait(120);
   assert(text().includes('功能对照 1 / 9'), '点击继续后直达对照第 1 题');
+} else {
+  assert(text().includes('第 31 / 60 题'), '仅凭 URL 片段恢复第 31 题');
+  click('.option[data-value="1"]');
+  await wait(320);
+  assert(location.hash.includes('?d=3'), '答题后进度写入 URL 片段');
+  assert(localStorage.getItem('jung8.answers.v1'), '进度同时写回 localStorage');
 }
 console.log('CASE', testCase, 'OK');

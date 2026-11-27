@@ -9,40 +9,42 @@ const LS_ANSWERS = 'jung8.answers.v1';
 const LS_INDEX = 'jung8.index.v1';
 const LS_PAIRS = 'jung8.pairs.v1';
 const LS_VERSION = 'jung8.version';
-const CURRENT_VERSION = '2';
+const CURRENT_VERSION = '3';
+const PROGRESS_VERSION = '3';
+const PROGRESS_PARAM = 'd';
 const TOTAL = QUESTIONS.length;
 const TOTAL_PAIRS = PAIR_QUESTIONS.length;
 const TOTAL_STEPS = TOTAL + TOTAL_PAIRS;
 
-// v2 改写了 Fi/Fe 的 15 道题（第 46–60 题）。旧作答只保留前 45 题，
-// 让老用户补答改写的题目和 9 组对照，而不是沿用已经失真的旧答案。
-function migrateOldData() {
+// v3 按“全新开始”处理：题库重写后不再部分保留旧进度，直接清空。
+function resetForNewVersion() {
   if (storageGet(LS_VERSION) === CURRENT_VERSION) return;
-  let raw = null;
-  try { raw = JSON.parse(storageGet(LS_ANSWERS) || 'null'); } catch (e) { raw = null; }
-  const hasOld = Array.isArray(raw) && raw.length === TOTAL && raw.some((v) => typeof v === 'number');
-  if (hasOld) {
-    for (let i = 45; i < TOTAL; i += 1) raw[i] = null;
-    storageSet(LS_ANSWERS, JSON.stringify(raw));
-    storageSet(LS_PAIRS, JSON.stringify(new Array(TOTAL_PAIRS).fill(null)));
-    const idx = Number(storageGet(LS_INDEX));
-    if (Number.isInteger(idx) && idx >= 45) storageSet(LS_INDEX, '45');
-  }
+  storageSet(LS_ANSWERS, JSON.stringify(new Array(TOTAL).fill(null)));
+  storageSet(LS_PAIRS, JSON.stringify(new Array(TOTAL_PAIRS).fill(null)));
+  storageSet(LS_INDEX, '0');
   storageSet(LS_VERSION, CURRENT_VERSION);
 }
-migrateOldData();
+resetForNewVersion();
+
+const restored = readProgressFromURL();
 
 // 结果示例：一组固定的演示作答（ENFP 倾向），不写入用户进度
 const DEMO_ANSWERS = [4,2,2,1,2,2,3,4,4,1,3,1,3,2,3,4,4,2,2,2,2,2,3,3,3,1,2,1,2,2,3,4,4,2,2,1,2,2,3,3,4,1,2,2,2,2,3,4,3,1,2,1,2,2,3,4,4,1,2,3];
 
 const state = {
-  answers: loadAnswers(),
-  pairs: loadPairs(),
-  index: loadIndex(),
+  answers: restored ? restored.answers : loadAnswers(),
+  pairs: restored ? restored.pairs : loadPairs(),
+  index: restored ? restored.index : loadIndex(),
   timer: null,
   locked: false,
   view: 'home',
 };
+
+if (restored) {
+  saveAnswers();
+  savePairs();
+  saveIndex();
+}
 
 let toastTimer = null;
 let currentRoute = '/';
@@ -92,6 +94,59 @@ function saveIndex() {
   storageSet(LS_INDEX, state.index);
 }
 
+// 微信等内置浏览器切后台后可能清掉 localStorage；把进度同时写进地址栏片段，
+// 页面被重新加载时可以从 URL 恢复。片段不会发送到服务器。
+function progressPayload() {
+  const idx = state.index.toString(36).padStart(2, '0');
+  const a = state.answers.map((v) => (typeof v === 'number' ? String(v) : 'n')).join('');
+  const p = state.pairs.map((v) => (typeof v === 'number' ? String(v) : 'n')).join('');
+  return `${PROGRESS_VERSION}${idx}${a}${p}`;
+}
+
+function decodeProgress(str) {
+  if (typeof str !== 'string' || str.length !== 3 + TOTAL + TOTAL_PAIRS) return null;
+  if (str[0] !== PROGRESS_VERSION) return null;
+  const index = parseInt(str.slice(1, 3), 36);
+  if (!Number.isInteger(index) || index < 0 || index >= TOTAL_STEPS) return null;
+  const answers = str.slice(3, 3 + TOTAL).split('').map((ch) => (ch === 'n' ? null : Number(ch)));
+  const pairs = str.slice(3 + TOTAL).split('').map((ch) => (ch === 'n' ? null : Number(ch)));
+  if (answers.some((v) => v !== null && (v < 0 || v > 4))) return null;
+  if (pairs.some((v) => v !== null && (v < 0 || v > 3))) return null;
+  return { answers, pairs, index };
+}
+
+function readProgressFromURL() {
+  try {
+    const raw = location.hash.replace(/^#/, '');
+    const q = raw.indexOf('?');
+    if (q === -1) return null;
+    const part = raw.slice(q + 1).split('&')
+      .find((s) => s.startsWith(`${PROGRESS_PARAM}=`));
+    if (!part) return null;
+    return decodeProgress(decodeURIComponent(part.slice(PROGRESS_PARAM.length + 1)));
+  } catch (e) {
+    return null;
+  }
+}
+
+function syncProgressToURL() {
+  if (state.view !== 'test' && state.view !== 'result') return;
+  if (currentRoute.includes('demo')) return;
+  const base = state.view === 'test' ? '#/test' : '#/result';
+  const hasAny = state.answers.some((v) => typeof v === 'number')
+    || state.pairs.some((v) => typeof v === 'number');
+  const next = hasAny ? `${base}?${PROGRESS_PARAM}=${progressPayload()}` : base;
+  if (location.hash === next) return;
+  try { history.replaceState(null, '', next); } catch (e) { /* ignore */ }
+}
+
+function saveProgress() {
+  saveAnswers();
+  savePairs();
+  saveIndex();
+  syncProgressToURL();
+}
+
 function answeredCount() {
   return state.answers.filter((v) => typeof v === 'number').length;
 }
@@ -127,9 +182,7 @@ function resetAll() {
   state.index = 0;
   state.locked = false;
   clearTimeout(state.timer);
-  saveAnswers();
-  savePairs();
-  saveIndex();
+  saveProgress();
 }
 
 function toast(msg) {
@@ -407,8 +460,7 @@ function chooseOption(value) {
   if (state.locked || state.index >= TOTAL) return;
   const idx = state.index;
   state.answers[idx] = value;
-  saveAnswers();
-  saveIndex();
+  saveProgress();
 
   const btn = app.querySelector(`.option[data-value="${value}"]`);
   app.querySelectorAll('.option[data-value]').forEach((el) => el.classList.remove('is-selected'));
@@ -427,11 +479,11 @@ function chooseOption(value) {
       } else {
         state.index = TOTAL + firstUnansweredPair();
       }
-      saveIndex();
+      saveProgress();
       renderTest();
     } else {
       state.index = idx + 1;
-      saveIndex();
+      saveProgress();
       renderTest();
     }
   }, 230);
@@ -442,7 +494,7 @@ function choosePair(value) {
   const pi = state.index - TOTAL;
   if (pi < 0 || pi >= TOTAL_PAIRS) return;
   state.pairs[pi] = value;
-  savePairs();
+  saveProgress();
 
   const btn = app.querySelector(`.option[data-pair-value="${value}"]`);
   app.querySelectorAll('.option[data-pair-value]').forEach((el) => el.classList.remove('is-selected'));
@@ -456,7 +508,7 @@ function choosePair(value) {
       go('#/result');
     } else {
       state.index = TOTAL + pi + 1;
-      saveIndex();
+      saveProgress();
       renderTest();
     }
   }, 230);
@@ -467,7 +519,7 @@ function prevQuestion() {
   state.locked = false;
   if (state.index > 0) {
     state.index -= 1;
-    saveIndex();
+    saveProgress();
     renderTest();
   }
 }
@@ -476,6 +528,7 @@ function renderTest() {
   state.view = 'test';
   app.innerHTML = testView();
   bindTest();
+  syncProgressToURL();
   toastEl.classList.remove('show');
 }
 
@@ -851,7 +904,7 @@ function aboutView() {
       <div class="note">本测试用于自我探索与交流，不构成心理诊断、职业测评结论或医疗建议。若你正经历持续的情绪困扰，请寻求专业心理帮助。</div>
 
       <h2>隐私</h2>
-      <p>所有作答与结果只保存在你当前浏览器的本地存储中，不上传服务器，也不需要注册账号。清除浏览器数据即会删除记录。</p>
+      <p>所有作答与结果只保存在你当前浏览器的本地存储中，不上传服务器，也不需要注册账号。为了在微信等内置浏览器切换页面后恢复进度，当前答题进度也会写入地址栏的本地片段（不会发送到服务器）。如果你把带进度的地址栏链接分享给别人，对方可能看到你的答题进度；正常分享请使用首页链接。清除浏览器数据即会删除记录。</p>
 
       <div style="margin-top:28px"><a class="btn btn-primary" href="#/test">开始测试 →</a></div>
     </div>
@@ -897,6 +950,7 @@ function router() {
     bindTest();
     if (answeredCount() === TOTAL) bindComplete();
     setNav('/test');
+    syncProgressToURL();
   } else if (raw.startsWith('/result')) {
     const demo = raw.includes('demo');
     state.view = 'result';
@@ -904,6 +958,7 @@ function router() {
     bindResult(demo);
     if (!demo) bindIncomplete();
     setNav('/result');
+    if (!demo) syncProgressToURL();
   } else if (raw === '/types') {
     state.view = 'types';
     app.innerHTML = typesView();
@@ -948,7 +1003,7 @@ function bindHome() {
       } else {
         resetAll();
       }
-      saveIndex();
+      saveProgress();
       go('#/test');
     });
   }
@@ -956,7 +1011,7 @@ function bindHome() {
   if (resume) {
     resume.addEventListener('click', () => {
       state.index = firstUnfinishedStep();
-      saveIndex();
+      saveProgress();
       go('#/test');
     });
   }
@@ -980,7 +1035,7 @@ function bindComplete() {
 
 function bindIncomplete() {
   const cont = app.querySelector('[data-continue]');
-  if (cont) cont.addEventListener('click', () => { state.index = firstUnfinishedStep(); saveIndex(); go('#/test'); });
+  if (cont) cont.addEventListener('click', () => { state.index = firstUnfinishedStep(); saveProgress(); go('#/test'); });
   const restart = app.querySelector('[data-restart]');
   if (restart) restart.addEventListener('click', () => { resetAll(); go('#/test'); });
 }
@@ -1007,6 +1062,16 @@ document.addEventListener('keydown', (e) => {
     prevQuestion();
   }
 });
+
+function saveOnHide() {
+  if (state.view === 'test' || state.view === 'result') saveProgress();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveOnHide();
+});
+window.addEventListener('pagehide', saveOnHide);
+window.addEventListener('beforeunload', saveOnHide);
 
 window.addEventListener('hashchange', router);
 router();
