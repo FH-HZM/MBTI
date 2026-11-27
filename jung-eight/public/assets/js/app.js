@@ -1,4 +1,4 @@
-import { QUESTIONS, FUNCTIONS, FUNCTION_ORDER, SCALE } from './questions.js';
+import { QUESTIONS, FUNCTIONS, FUNCTION_ORDER, SCALE, PAIR_QUESTIONS } from './questions.js';
 import { TYPES, TYPE_LIST, FAMILIES, TYPE_LIST as ALL_TYPES } from './types.js';
 import { evaluate } from './engine.js';
 import { avatarSVG } from './avatars.js';
@@ -7,13 +7,37 @@ const app = document.getElementById('app');
 const toastEl = document.getElementById('toast');
 const LS_ANSWERS = 'jung8.answers.v1';
 const LS_INDEX = 'jung8.index.v1';
+const LS_PAIRS = 'jung8.pairs.v1';
+const LS_VERSION = 'jung8.version';
+const CURRENT_VERSION = '2';
 const TOTAL = QUESTIONS.length;
+const TOTAL_PAIRS = PAIR_QUESTIONS.length;
+const TOTAL_STEPS = TOTAL + TOTAL_PAIRS;
+
+// v2 改写了 Fi/Fe 的 15 道题（第 46–60 题）。旧作答只保留前 45 题，
+// 让老用户补答改写的题目和 8 组对照，而不是沿用已经失真的旧答案。
+function migrateOldData() {
+  if (storageGet(LS_VERSION) === CURRENT_VERSION) return;
+  let raw = null;
+  try { raw = JSON.parse(storageGet(LS_ANSWERS) || 'null'); } catch (e) { raw = null; }
+  const hasOld = Array.isArray(raw) && raw.length === TOTAL && raw.some((v) => typeof v === 'number');
+  if (hasOld) {
+    for (let i = 45; i < TOTAL; i += 1) raw[i] = null;
+    storageSet(LS_ANSWERS, JSON.stringify(raw));
+    storageSet(LS_PAIRS, JSON.stringify(new Array(TOTAL_PAIRS).fill(null)));
+    const idx = Number(storageGet(LS_INDEX));
+    if (Number.isInteger(idx) && idx >= 45) storageSet(LS_INDEX, '45');
+  }
+  storageSet(LS_VERSION, CURRENT_VERSION);
+}
+migrateOldData();
 
 // 结果示例：一组固定的演示作答（ENFP 倾向），不写入用户进度
 const DEMO_ANSWERS = [4,2,2,1,2,2,3,4,4,1,3,1,3,2,3,4,4,2,2,2,2,2,3,3,3,1,2,1,2,2,3,4,4,2,2,1,2,2,3,3,4,1,2,2,2,2,3,4,3,1,2,1,2,2,3,4,4,1,2,3];
 
 const state = {
   answers: loadAnswers(),
+  pairs: loadPairs(),
   index: loadIndex(),
   timer: null,
   locked: false,
@@ -41,13 +65,27 @@ function loadAnswers() {
   return new Array(TOTAL).fill(null);
 }
 
+function loadPairs() {
+  try {
+    const raw = JSON.parse(storageGet(LS_PAIRS) || 'null');
+    if (Array.isArray(raw) && raw.length === TOTAL_PAIRS) {
+      return raw.map((v) => (typeof v === 'number' && v >= 0 && v <= 3 ? v : null));
+    }
+  } catch (e) { /* ignore */ }
+  return new Array(TOTAL_PAIRS).fill(null);
+}
+
 function loadIndex() {
   const n = Number(storageGet(LS_INDEX));
-  return Number.isInteger(n) && n >= 0 && n < TOTAL ? n : 0;
+  return Number.isInteger(n) && n >= 0 && n < TOTAL_STEPS ? n : 0;
 }
 
 function saveAnswers() {
   storageSet(LS_ANSWERS, JSON.stringify(state.answers));
+}
+
+function savePairs() {
+  storageSet(LS_PAIRS, JSON.stringify(state.pairs));
 }
 
 function saveIndex() {
@@ -58,21 +96,39 @@ function answeredCount() {
   return state.answers.filter((v) => typeof v === 'number').length;
 }
 
+function pairsAnsweredCount() {
+  return state.pairs.filter((v) => typeof v === 'number').length;
+}
+
 function hasProgress() {
-  return answeredCount() > 0;
+  return answeredCount() > 0 || pairsAnsweredCount() > 0;
 }
 
 function firstUnanswered() {
   const i = state.answers.findIndex((v) => typeof v !== 'number');
-  return i === -1 ? TOTAL - 1 : i;
+  return i === -1 ? TOTAL : i;
+}
+
+function firstUnansweredPair() {
+  const i = state.pairs.findIndex((v) => typeof v !== 'number');
+  return i === -1 ? TOTAL_PAIRS - 1 : i;
+}
+
+function firstUnfinishedStep() {
+  const a = state.answers.findIndex((v) => typeof v !== 'number');
+  if (a !== -1) return a;
+  const p = state.pairs.findIndex((v) => typeof v !== 'number');
+  return p === -1 ? TOTAL + TOTAL_PAIRS - 1 : TOTAL + p;
 }
 
 function resetAll() {
   state.answers = new Array(TOTAL).fill(null);
+  state.pairs = new Array(TOTAL_PAIRS).fill(null);
   state.index = 0;
   state.locked = false;
   clearTimeout(state.timer);
   saveAnswers();
+  savePairs();
   saveIndex();
 }
 
@@ -111,15 +167,24 @@ function wheelChips() {
 
 function homeView() {
   const n = answeredCount();
-  const resume = n > 0 && n < TOTAL
+  const p = pairsAnsweredCount();
+  const allDone = n === TOTAL && p === TOTAL_PAIRS;
+  let resumeText = '';
+  if (n > 0 && n < TOTAL) {
+    resumeText = `你上次已经答到第 ${Math.min(n + 1, TOTAL)} 题（共 ${n} 题已完成），进度会自动保存。`;
+  } else if (n === TOTAL && p < TOTAL_PAIRS) {
+    resumeText = `60 道情境题已完成，还差 ${TOTAL_PAIRS - p} 组功能对照，做完就能生成结果。`;
+  }
+  const resume = resumeText
     ? `<div class="resume-hint">
-         <span>你上次已经答到第 ${Math.min(firstUnanswered() + 1, TOTAL)} 题（共 ${n} 题已完成），进度会自动保存。</span>
+         <span>${resumeText}</span>
          <span style="display:flex;gap:8px">
-           <button class="btn btn-sm btn-primary" data-resume>继续作答</button>
+           <button class="btn btn-sm btn-primary" data-resume>${n === TOTAL ? '继续对照' : '继续作答'}</button>
            <button class="btn btn-sm btn-ghost" data-restart>重新开始</button>
          </span>
        </div>`
     : '';
+  const startLabel = allDone ? '查看我的结果' : n === TOTAL ? '继续功能对照' : n > 0 ? '继续测试' : '开始测试';
 
   return `<div class="view">
     <section class="hero">
@@ -127,15 +192,16 @@ function homeView() {
         <div class="hero-copy">
           <div class="eyebrow">Jung · 8 Cognitive Functions</div>
           <h1 class="h1">荣格八维<br><span class="hl">人格测试</span></h1>
-          <p class="lede">60 道贴近中国日常的选择题，测量你在 Ne、Ni、Se、Si、Te、Ti、Fe、Fi 八种认知功能上的真实倾向，并匹配你的十六型人格。不是给你贴标签，而是让你看清自己最顺手的思维方式。</p>
+          <p class="lede">60 道贴近中国日常的情境题，加 8 组相邻功能对照，测量你在 Ne、Ni、Se、Si、Te、Ti、Fe、Fi 八种认知功能上的真实倾向，并匹配你的十六型人格。不是给你贴标签，而是让你看清自己最顺手的思维方式。</p>
           <div class="meta-row">
-            <span class="pill"><i class="pill-dot"></i><b>60</b> 道题</span>
-            <span class="pill"><i class="pill-dot"></i>约 <b>8</b> 分钟</span>
+            <span class="pill"><i class="pill-dot"></i><b>60</b> 道情境题</span>
+            <span class="pill"><i class="pill-dot"></i><b>8</b> 组功能对照</span>
+            <span class="pill"><i class="pill-dot"></i>约 <b>9</b> 分钟</span>
             <span class="pill"><i class="pill-dot"></i>中国情境题库</span>
             <span class="pill"><i class="pill-dot"></i>十六型解读</span>
           </div>
           <div class="hero-actions">
-            <button class="btn btn-primary btn-lg" data-start>${n > 0 && n < TOTAL ? '继续测试' : '开始测试'} <span aria-hidden="true">→</span></button>
+            <button class="btn btn-primary btn-lg" data-start>${startLabel} <span aria-hidden="true">→</span></button>
             <a class="btn btn-ghost btn-lg" href="#/types">先看看十六型人格</a>
           </div>
           ${resume}
@@ -187,7 +253,7 @@ function homeView() {
           <article class="step">
             <div class="step-num">02</div>
             <h3>系统计算八维</h3>
-            <p>每个功能由 7–8 道不同情境的题目共同测量，降低单一题目带来的误差。</p>
+            <p>每个功能由 7–8 道不同情境的题目共同测量；最后再用 8 组两两对照，校正“平时有没有机会做”带来的偏差。</p>
           </article>
           <article class="step">
             <div class="step-num">03</div>
@@ -203,14 +269,14 @@ function homeView() {
         <div class="cred-panel">
           <div>
             <h3>这份题库，经过模拟验证</h3>
-            <p>题目参考荣格《心理类型》的八维框架与中文同类型测试的题型经验，结合职场、家庭、人情往来等中国情境重写。我们用模拟答题者反复检验计分：八维得分与潜在倾向的相关系数约 0.87，普通噪声下的类型还原率约 81%。</p>
+            <p>题目参考荣格《心理类型》的八维框架与中文同类型测试的题型经验，结合职场、家庭、人情往来等中国情境重写。我们用模拟答题者反复检验计分：八维得分与预设倾向的相关系数约 0.89；十六型逐型自测在普通个体差异下命中约 97%，更严格条件下约 83%。最后 8 组功能对照专门用来校正 Fi/Fe 等相邻功能的行为频率偏差。</p>
             <div style="margin-top:16px"><a class="btn btn-sm btn-ghost" href="#/about">查看测试说明与信度数据</a></div>
           </div>
           <div class="cred-stats">
-            <div class="cred-stat"><b>60</b><span>道行为频率题</span></div>
-            <div class="cred-stat"><b>8</b><span>个认知功能维度</span></div>
+            <div class="cred-stat"><b>60</b><span>道情境题</span></div>
+            <div class="cred-stat"><b>8</b><span>组功能对照</span></div>
+            <div class="cred-stat"><b>8</b><span>个认知维度</span></div>
             <div class="cred-stat"><b>16</b><span>型人格匹配</span></div>
-            <div class="cred-stat"><b>81%</b><span>模拟类型还原率</span></div>
           </div>
         </div>
       </div>
@@ -226,17 +292,22 @@ function encouragement(i) {
   if (i < 40) return '过半了。如果有点累，可以退出休息，进度会保存。';
   if (i < 55) return '进入后半段，很多人的真实倾向会在这时更清晰。';
   if (i < TOTAL - 1) return '最后几题了，坚持一下。';
-  return '最后一题，选完就能看到你的八维画像。';
+  return '情境题最后一道，接下来还有 8 组快速对照。';
 }
 
 function testView() {
   if (!hasProgress() && state.index > 0) state.index = 0;
-  if (state.answers.every((v) => typeof v === 'number')) {
+  if (answeredCount() === TOTAL && pairsAnsweredCount() === TOTAL_PAIRS) {
     return completeView();
   }
-  const idx = Math.min(Math.max(state.index, 0), TOTAL - 1);
+  let step = Math.min(Math.max(state.index, 0), TOTAL_STEPS - 1);
+  if (step >= TOTAL && answeredCount() < TOTAL) step = firstUnanswered();
+  return step < TOTAL ? likertView(step) : pairView(step - TOTAL);
+}
+
+function likertView(idx) {
   const q = QUESTIONS[idx];
-  const pct = Math.round((idx / TOTAL) * 100);
+  const pct = Math.round((idx / TOTAL_STEPS) * 100);
   const selected = state.answers[idx];
 
   return `<div class="test-view view">
@@ -269,12 +340,60 @@ function testView() {
   </div>`;
 }
 
+function pairView(pi) {
+  const pair = PAIR_QUESTIONS[pi];
+  const selected = state.pairs[pi];
+  const pct = Math.round(((TOTAL + pi) / TOTAL_STEPS) * 100);
+
+  return `<div class="test-view view">
+    <div class="test-shell">
+      <div class="test-top">
+        <a href="#/" class="mini">← 退出，进度自动保存</a>
+        <div class="count">功能对照 <b>${pi + 1}</b> / ${TOTAL_PAIRS}</div>
+      </div>
+      <div class="progress" aria-hidden="true"><i style="width:${pct}%"></i></div>
+      <div class="test-encourage">最后一步：不用想“我应该怎样”，选更像你本能反应的那一句。</div>
+
+      <div class="question-card pair-card">
+        <div class="q-index">PAIR ${String(pi + 1).padStart(2, '0')} · 哪一句更像你</div>
+        <div class="pair-statements">
+          <div class="pair-statement">
+            <span class="pair-tag">A</span>
+            <p>${pair.aText}</p>
+          </div>
+          <div class="pair-statement">
+            <span class="pair-tag">B</span>
+            <p>${pair.bText}</p>
+          </div>
+        </div>
+        <div class="options pair-options" role="group" aria-label="选择更像你的一句">
+          ${[
+            { value: 0, label: 'A 明显更像', hint: '很确定' },
+            { value: 1, label: 'A 稍微更像', hint: '有一点' },
+            { value: 2, label: 'B 稍微更像', hint: '有一点' },
+            { value: 3, label: 'B 明显更像', hint: '很确定' },
+          ].map((o) => `<button class="option ${selected === o.value ? 'is-selected' : ''}" data-pair-value="${o.value}" type="button">
+            <span class="key">${o.value + 1}</span>
+            <span class="olabel">${o.label}</span>
+            <span class="ohint">${o.hint}</span>
+          </button>`).join('')}
+        </div>
+        <div class="test-foot">
+          <button class="btn btn-quiet" id="prev-btn">← 上一题</button>
+          <span class="autosave"><i></i> 进度已自动保存</span>
+        </div>
+      </div>
+      <p class="test-legal">快捷键 1–4 可快速选择 · 对照题没有好坏，只比较哪一句更接近你的本能反应。</p>
+    </div>
+  </div>`;
+}
+
 function completeView() {
   return `<div class="test-view view">
     <div class="test-shell">
       <div class="question-card" style="text-align:center;padding:56px 40px">
         <div class="q-index">ALL DONE</div>
-        <h1 class="q-text" style="min-height:0">60 题已经完成</h1>
+        <h1 class="q-text" style="min-height:0">60 题 + 8 组对照已完成</h1>
         <p class="q-hint" style="margin-bottom:24px">你的八维画像已生成，去看看结果吧。</p>
         <button class="btn btn-primary btn-lg" data-result>查看我的结果 →</button>
         <div style="margin-top:14px"><button class="btn btn-quiet btn-sm" data-restart>重新测一次</button></div>
@@ -284,14 +403,14 @@ function completeView() {
 }
 
 function chooseOption(value) {
-  if (state.locked) return;
+  if (state.locked || state.index >= TOTAL) return;
   const idx = state.index;
   state.answers[idx] = value;
   saveAnswers();
   saveIndex();
 
   const btn = app.querySelector(`.option[data-value="${value}"]`);
-  app.querySelectorAll('.option').forEach((el) => el.classList.remove('is-selected'));
+  app.querySelectorAll('.option[data-value]').forEach((el) => el.classList.remove('is-selected'));
   if (btn) btn.classList.add('is-selected');
 
   state.locked = true;
@@ -299,11 +418,43 @@ function chooseOption(value) {
   state.timer = setTimeout(() => {
     state.locked = false;
     if (idx >= TOTAL - 1) {
-      state.index = TOTAL - 1;
+      if (answeredCount() < TOTAL) {
+        state.index = firstUnanswered();
+      } else if (pairsAnsweredCount() === TOTAL_PAIRS) {
+        go('#/result');
+        return;
+      } else {
+        state.index = TOTAL + firstUnansweredPair();
+      }
       saveIndex();
-      go('#/result');
+      renderTest();
     } else {
       state.index = idx + 1;
+      saveIndex();
+      renderTest();
+    }
+  }, 230);
+}
+
+function choosePair(value) {
+  if (state.locked || state.index < TOTAL) return;
+  const pi = state.index - TOTAL;
+  if (pi < 0 || pi >= TOTAL_PAIRS) return;
+  state.pairs[pi] = value;
+  savePairs();
+
+  const btn = app.querySelector(`.option[data-pair-value="${value}"]`);
+  app.querySelectorAll('.option[data-pair-value]').forEach((el) => el.classList.remove('is-selected'));
+  if (btn) btn.classList.add('is-selected');
+
+  state.locked = true;
+  clearTimeout(state.timer);
+  state.timer = setTimeout(() => {
+    state.locked = false;
+    if (pi >= TOTAL_PAIRS - 1) {
+      go('#/result');
+    } else {
+      state.index = TOTAL + pi + 1;
       saveIndex();
       renderTest();
     }
@@ -323,11 +474,7 @@ function prevQuestion() {
 function renderTest() {
   state.view = 'test';
   app.innerHTML = testView();
-  const prev = app.querySelector('#prev-btn');
-  if (prev) prev.addEventListener('click', prevQuestion);
-  app.querySelectorAll('.option').forEach((btn) => {
-    btn.addEventListener('click', () => chooseOption(Number(btn.dataset.value)));
-  });
+  bindTest();
   toastEl.classList.remove('show');
 }
 
@@ -388,26 +535,31 @@ function barsHTML(res) {
         <span>${fn.name}</span>
       </div>
       <div class="bar-track"><div class="bar-fill" data-w="${res.rel[f]}"></div></div>
-      <div class="bar-score">${res.rel[f]}<small>原始 ${res.scores[f].pct}%</small></div>
+      <div class="bar-score">${res.rel[f]}<small>频率 ${res.scores[f].likertPct}% · 综合 ${res.scores[f].pct}%</small></div>
     </div>`;
   }).join('');
 }
 
 function resultView(demo = false) {
-  if (!demo && answeredCount() < TOTAL) {
+  const missing = TOTAL - answeredCount();
+  const missingPairs = TOTAL_PAIRS - pairsAnsweredCount();
+  if (!demo && (missing > 0 || missingPairs > 0)) {
+    const text = missing > 0
+      ? `还差 ${missing} 道情境题`
+      : `还差 ${missingPairs} 组功能对照`;
     return `<div class="result-view view"><div class="wrap">
       <div class="panel" style="text-align:center;padding:56px 32px">
-        <h1 class="q-text" style="min-height:0">还差 ${TOTAL - answeredCount()} 题</h1>
-        <p class="q-hint" style="margin-bottom:22px">完成全部题目后才能生成八维画像。</p>
-        <button class="btn btn-primary btn-lg" data-continue>继续答题 →</button>
+        <h1 class="q-text" style="min-height:0">${text}</h1>
+        <p class="q-hint" style="margin-bottom:22px">完成 60 道情境题和 8 组功能对照后，才能生成八维画像。</p>
+        <button class="btn btn-primary btn-lg" data-continue>继续完成 →</button>
       </div>
     </div></div>`;
   }
 
-  const res = evaluate(demo ? DEMO_ANSWERS : state.answers);
+  const res = evaluate(demo ? DEMO_ANSWERS : state.answers, { pairs: demo ? null : state.pairs });
   const type = res.typeData;
   const fam = FAMILIES[type.family];
-  const alts = res.fits.slice(1, 3);
+  const alts = res.fits.slice(1, 4);
   const dominant = type.stack[0];
   const auxiliary = type.stack[1];
   const inferior = type.stack[3];
@@ -430,6 +582,7 @@ function resultView(demo = false) {
             <span class="chip">主导 ${dominant} · ${FUNCTIONS[dominant].nick}</span>
             <span class="chip">辅助 ${auxiliary} · ${FUNCTIONS[auxiliary].nick}</span>
             <span class="chip">清晰度 ${res.clarity}</span>
+            ${res.pairApplied ? `<span class="chip">对照校准 ${res.pairsAnswered}/${TOTAL_PAIRS}</span>` : ''}
           </div>
           <div class="result-actions">
             <a class="btn btn-primary" href="#/type/${type.code}">查看完整解读 →</a>
@@ -441,7 +594,11 @@ function resultView(demo = false) {
         </div>
       </article>
 
-      ${res.lowDifferentiation ? `<div class="warn-note"><b>区分度偏低</b>你的八个维度分数非常接近，说明这次作答没有拉开差异，类型结果仅供参考。建议换一个放松、真实的状态重测一次。</div>` : ''}
+      ${res.lowDifferentiation
+        ? `<div class="warn-note"><b>区分度偏低</b>你的八个维度分数非常接近，说明这次作答没有拉开差异，类型结果仅供参考。建议换一个放松、真实的状态重测一次。</div>`
+        : res.clarity < 60
+          ? `<div class="warn-note"><b>结果区分度一般</b>你的前两个类型比较接近，Fi/Fe 这类相邻功能也容易受场景影响。建议同时阅读次选类型，或换一个放松、真实的状态重测。</div>`
+          : ''}
 
       <div class="result-grid">
         <section class="panel">
@@ -460,7 +617,7 @@ function resultView(demo = false) {
             <p>${type.stackNotes[inferior]}</p>
           </div>
           <div class="summary-block">
-            <h4>次选的类型</h4>
+            <h4>次选与第三</h4>
             <div class="mini-alts">
               ${alts.map((a) => `<div class="mini-alt"><span><b>${a.code}</b> ${TYPES[a.code].name} · ${TYPES[a.code].tagline}</span><span class="pct">${a.fit}%</span></div>`).join('')}
             </div>
@@ -469,9 +626,10 @@ function resultView(demo = false) {
       </div>
 
       <section class="panel bars-panel">
-        <div class="panel-head"><h2>八维分数</h2><span>相对强度 + 原始倾向</span></div>
+        <div class="panel-head"><h2>八维分数</h2><span>相对强度 · 频率分 · 综合分</span></div>
         <div class="bars">${barsHTML(res)}</div>
-        <p class="result-note">“相对强度”是把你的八个维度放在一起比较后的排序分数，便于看清主次；“原始”是你在这组题目上的绝对倾向。分数不是能力高低，类型也只代表当前最贴合的功能组合，会随阶段与情境变化。</p>
+        <p class="result-note">“相对强度”是把你的八个维度放在一起比较后的排序分数，便于看清主次；“频率分”是 60 道情境题的绝对倾向；“综合分”是频率分与 8 组对照按 28% 权重合成后的分数，用于类型匹配。分数不是能力高低，类型也只代表当前最贴合的功能组合，会随阶段与情境变化。</p>
+        <p class="result-note">本次结果${res.pairApplied ? '已结合最后 8 组功能对照，对行为频率题的情境偏差做了校正。' : '仅按 60 道情境题计分。'}不同题库的题目与计分方式不同，结论有差异是正常的；<a href="#/about">可以看看为什么和 APESK 等测试不一样</a>。</p>
       </section>
 
       <div class="result-cta">
@@ -488,7 +646,7 @@ function bindResult(demo = false) {
     if (copy) {
       copy.addEventListener('click', () => {
         if (answeredCount() < TOTAL) return;
-        const res = evaluate(state.answers);
+        const res = evaluate(state.answers, { pairs: state.pairs });
         const type = res.typeData;
         const sorted = [...FUNCTION_ORDER].sort((a, b) => res.rel[b] - res.rel[a]);
         const text = `我的荣格八维类型：${type.code} ${type.name}（${type.alias}）
@@ -648,27 +806,38 @@ function aboutView() {
 
       <h2>题目如何编写</h2>
       <ul>
-        <li>每个功能 7–8 题，共 60 题；同一功能的题目覆盖不同生活面向，避免只测到单一侧面。</li>
+        <li>每个功能 7–8 题，共 60 道情境题；同一功能的题目覆盖不同生活面向，避免只测到单一侧面。</li>
         <li>全部写成可观察的行为频率，而不是“你觉得自己是不是一个有远见的人”这类自我评价。</li>
         <li>情境取自中国日常：部门会议、家族聚餐、微信群讨论、长辈期待、临时邀约、内卷与选择。</li>
         <li>题目交错排列，降低连续同类型题目带来的作答惯性；不设置“正确答案”导向。</li>
+        <li>最后加 8 组“两句里选更像你的”功能对照，专门区分 Fi/Fe、Ne/Ni 等相邻功能，校正“最近有没有机会做”带来的偏差。</li>
       </ul>
 
       <h2>怎么计分</h2>
-      <p>每题按“从不—总是”记为 0–4 分，同一功能的题目相加后换算为 0–100 的原始倾向。随后把你的八维曲线与十六型的“功能权重模板”逐一做相关匹配：主导功能权重最高，辅助、第三依次降低，劣势功能为负，四个影子功能也各有权重。匹配度最高的类型，就是本次结果。</p>
+      <p>每题按“从不—总是”记为 0–4 分，同一功能的题目相加后换算为 0–100 的行为频率分。最后 8 组对照题让相邻功能直接竞争，按 28% 的权重与频率分合成最终八维分；再把这八维曲线与十六型的“功能权重模板”逐一做相关匹配，匹配度最高的类型就是本次结果。</p>
       <p>结果页同时给出“相对强度”：把你自己的八个维度放在一起排序并映射到 46–97，便于一眼看出主次。原始分数则保留绝对倾向。两者结合看，比单看一个数字更可靠。</p>
+
+      <h2>为什么和 APESK 等测试可能不一样？</h2>
+      <p>不同测试的题目、作答格式、计分方式和常模都不同，结论有差异是正常的。最常见的原因是“相邻功能”被混淆：</p>
+      <ul>
+        <li><b>Fi 与 Fe 都关心人，但方向不同。</b>Fi 先问“这符合我内心的价值吗”，Fe 先看“这会让身边的人舒服吗”。很多 Fi 题（做真实的自己、坚持原则）社会赞许度高，几乎人人都容易打高分；很多 Fe 题（主动调节气氛、照顾长辈）又依赖社交场景机会。如果你最近较少参加集体活动，Fe 就可能被低估。</li>
+        <li><b>行为频率不等于功能偏好。</b>你可能“心里很在意别人”，但实际很少主动组织饭局；也可能“很有自己的原则”，但平时并不需要为它跟人冲突。频率题会漏掉这些“有机会才会表现出来”的倾向。</li>
+        <li><b>类型是连续谱上的相对排序，不是诊断。</b>相邻类型（如 ENFJ/ESFJ、INFP/ENFP）本来就只差一两个功能顺序，前两名都值得读。</li>
+      </ul>
+      <p>这次升级新增了 8 组功能对照，正是为了减少这种偏差。如果你在 APESK 上是 Fe 高、Fi 低，而在本测试里 Fi 高，建议用新版重测一次；对照题会把“内心价值”与“照顾气氛”放在一起直接比较，结果通常会更接近你的真实感受。</p>
 
       <h2>模拟验证</h2>
       <p>为了检查题库和计分是否“测得准”，我们用计算机生成带有已知功能倾向的模拟答题者，按真实作答的噪声水平反复作答，再看得出的类型是否回到已知类型。共进行数万次模拟：</p>
       <table class="data-table">
         <thead><tr><th>模拟条件</th><th>类型完全还原</th><th>真实类型进入前三</th><th>八维得分与潜在倾向相关</th></tr></thead>
         <tbody>
-          <tr><td>理想作答（低噪声）</td><td><b>99.2%</b></td><td>100%</td><td>0.94</td></tr>
-          <tr><td>普通作答（主要指标）</td><td><b>81.0%</b></td><td>98.6%</td><td>0.87</td></tr>
-          <tr><td>随意作答（高噪声）</td><td><b>54.6%</b></td><td>86.7%</td><td>0.83</td></tr>
+          <tr><td>理想剖面（无噪声）</td><td><b>16/16</b></td><td>100%</td><td>—</td></tr>
+          <tr><td>逐型自测（个体差异 σ=6）</td><td><b>97.0%</b></td><td>100%</td><td>0.88</td></tr>
+          <tr><td>逐型自测（个体差异 σ=12）</td><td><b>83.4%</b></td><td>99.1%</td><td>0.89</td></tr>
         </tbody>
       </table>
-      <p style="font-size:12.5px;color:var(--faint)">各维度内部一致性（Cronbach's α）约 0.84–0.87。模拟结果只能说明计分逻辑在该模型下稳定，不等于对真实个体的预测准确率。</p>
+      <p>在“Fe 主导者把 Fi 题打得偏高”的偏差场景中，没有对照题时 ENFJ/ESFJ 的命中率约 60%–80%；加入对照题后提升到约 75%–96%（取决于个体差异幅度）。这正是本次新增 8 组功能对照的原因。</p>
+      <p style="font-size:12.5px;color:var(--faint)">模拟结果只能说明计分逻辑在该模型下稳定，不等于对真实个体的预测准确率；内部一致性仍需要用真实样本进一步复核。</p>
 
       <h2>请这样理解结果</h2>
       <ul>
@@ -757,8 +926,11 @@ function router() {
 function bindTest() {
   const prev = app.querySelector('#prev-btn');
   if (prev) prev.addEventListener('click', prevQuestion);
-  app.querySelectorAll('.option').forEach((btn) => {
+  app.querySelectorAll('.option[data-value]').forEach((btn) => {
     btn.addEventListener('click', () => chooseOption(Number(btn.dataset.value)));
+  });
+  app.querySelectorAll('.option[data-pair-value]').forEach((btn) => {
+    btn.addEventListener('click', () => choosePair(Number(btn.dataset.pairValue)));
   });
 }
 
@@ -766,8 +938,12 @@ function bindHome() {
   const start = app.querySelector('[data-start]');
   if (start) {
     start.addEventListener('click', () => {
-      if (hasProgress() && answeredCount() < TOTAL) {
-        state.index = firstUnanswered();
+      if (answeredCount() === TOTAL && pairsAnsweredCount() === TOTAL_PAIRS) {
+        go('#/result');
+        return;
+      }
+      if (hasProgress()) {
+        state.index = firstUnfinishedStep();
       } else {
         resetAll();
       }
@@ -778,7 +954,7 @@ function bindHome() {
   const resume = app.querySelector('[data-resume]');
   if (resume) {
     resume.addEventListener('click', () => {
-      state.index = firstUnanswered();
+      state.index = firstUnfinishedStep();
       saveIndex();
       go('#/test');
     });
@@ -803,7 +979,7 @@ function bindComplete() {
 
 function bindIncomplete() {
   const cont = app.querySelector('[data-continue]');
-  if (cont) cont.addEventListener('click', () => { state.index = firstUnanswered(); saveIndex(); go('#/test'); });
+  if (cont) cont.addEventListener('click', () => { state.index = firstUnfinishedStep(); saveIndex(); go('#/test'); });
   const restart = app.querySelector('[data-restart]');
   if (restart) restart.addEventListener('click', () => { resetAll(); go('#/test'); });
 }
@@ -811,8 +987,17 @@ function bindIncomplete() {
 document.addEventListener('keydown', (e) => {
   if (state.view !== 'test') return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (answeredCount() === TOTAL) return;
   const n = Number(e.key);
+  if (state.index >= TOTAL) {
+    if (n >= 1 && n <= 4) {
+      e.preventDefault();
+      choosePair(n - 1);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      prevQuestion();
+    }
+    return;
+  }
   if (n >= 1 && n <= 5) {
     e.preventDefault();
     chooseOption(n - 1);

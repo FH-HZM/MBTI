@@ -1,8 +1,8 @@
-// 十六型逐型自测：预设八维数值 -> 代入作答 -> 看能否判回原类型
+// 十六型逐型自测 + Fi/Fe 偏差校正测试
 // 运行：node sim/selfcheck.mjs
 import {
   QUESTIONS, FUNCTION_ORDER, TYPES, TYPE_LIST, OPPOSITE,
-  evaluate, DEFAULT_WEIGHTS,
+  PAIR_QUESTIONS, evaluate, DEFAULT_WEIGHTS,
 } from '../public/assets/js/engine.js';
 
 const PRESET = { D: 90, A: 72, T: 55, I: 35, S5: 45, S6: 52, S7: 40, S8: 28 };
@@ -25,7 +25,6 @@ function gauss(rng) {
 }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// 按类型的功能栈生成八维 0-100 预设分
 function presetProfile(typeCode, { jitter = 0, rng } = {}) {
   const stack = TYPES[typeCode].stack;
   const shadow = stack.map((f) => OPPOSITE[f]);
@@ -45,13 +44,29 @@ function presetProfile(typeCode, { jitter = 0, rng } = {}) {
   return out;
 }
 
-// 预设分 -> 题目作答（0-4）
-function answersFromProfile(profile, rng, { itemNoise = 0.8, biasSd = 0.18 } = {}) {
+function answersFromProfile(profile, rng, { itemNoise = 0.8, biasSd = 0.18, fiBias = 0 } = {}) {
   const bias = rng ? gauss(rng) * biasSd : 0;
   return QUESTIONS.map((q) => {
-    const mean = 2 + ((profile[q.fn] - 50) / 50) * 1.8;
+    const mean = 2 + ((profile[q.fn] - 50) / 50) * 1.8 + (q.fn === 'Fi' ? fiBias : 0);
     const v = mean + bias + (rng ? gauss(rng) * itemNoise : 0);
     return Math.round(clamp(v, 0, 4));
+  });
+}
+
+// 由真实剖面生成“功能对照”答案：差异越大越确定，少量作答噪声
+function pairsFromProfile(profile, rng, noise = 0.12) {
+  return PAIR_QUESTIONS.map((p) => {
+    const diff = profile[p.a] - profile[p.b];
+    let v;
+    if (diff >= 25) v = 0;
+    else if (diff >= 7) v = 1;
+    else if (diff <= -25) v = 3;
+    else if (diff <= -7) v = 2;
+    else v = rng && rng() < 0.5 ? 1 : 2;
+    if (rng && rng() < noise) {
+      v = v === 0 ? 1 : v === 3 ? 2 : v === 1 ? (rng() < 0.5 ? 0 : 2) : (rng() < 0.5 ? 1 : 3);
+    }
+    return v;
   });
 }
 
@@ -64,28 +79,36 @@ function pearson(pairs) {
   return num / (Math.sqrt(da * db) || 1);
 }
 
+function evaluateWith(answers, pairs) {
+  return evaluate(answers, { pairs, strategy: 'template' });
+}
+
+function summarize(results, trueType) {
+  const hit = results.filter((r) => r.type === trueType).length;
+  const top3 = results.filter((r) => r.fits.slice(0, 3).some((f) => f.code === trueType)).length;
+  const dom = results.filter((r) => r.ranking[0] === TYPES[trueType].stack[0]).length;
+  return { hit: hit / results.length, top3: top3 / results.length, dom: dom / results.length };
+}
+
 console.log('预设强度:', PRESET, ' 每人抖动 σ:', JITTER, ' 每型人数:', ROUNDS);
 console.log('引擎权重:', DEFAULT_WEIGHTS);
 
-// ---------- A. 理想剖面：无噪声，直接代入 ----------
-console.log('\n=== A. 理想剖面（无噪声，直接作答）===');
+// ---------- A. 理想剖面 ----------
+console.log('\n=== A. 理想剖面（无噪声，含对照题）===');
 let idealHit = 0;
 for (const type of TYPE_LIST) {
   const profile = presetProfile(type);
   const answers = answersFromProfile(profile, null);
-  const res = evaluate(answers);
+  const pairs = pairsFromProfile(profile, null, 0);
+  const res = evaluateWith(answers, pairs);
   const ok = res.type === type;
   if (ok) idealHit += 1;
-  const stackHit = res.ranking.slice(0, 4).filter((f) => TYPES[type].stack.includes(f)).length;
-  console.log(
-    `${type} ${TYPES[type].name.padEnd(4, '　')} 判定=${res.type.padEnd(4)} 契合=${String(res.match).padStart(2)}% ` +
-    `栈重合=${stackHit}/4 ${ok ? 'PASS' : 'FAIL -> ' + res.type}`
-  );
+  console.log(`${type} ${TYPES[type].name.padEnd(4, '　')} 判定=${res.type.padEnd(4)} 契合=${String(res.match).padStart(2)}% ${ok ? 'PASS' : 'FAIL -> ' + res.type}`);
 }
 console.log(`理想剖面：${idealHit}/16 命中`);
 
-// ---------- B. 带个体差异与作答噪声的逐型自测 ----------
-console.log('\n=== B. 逐型自测（含个体差异与作答噪声）===');
+// ---------- B. 十六型逐型自测 ----------
+console.log('\n=== B. 逐型自测（含个体差异、作答噪声与对照题）===');
 const rng = mulberry32(20261128);
 const rows = {};
 for (const type of TYPE_LIST) rows[type] = { n: 0, hit: 0, top3: 0, domHit: 0, overlap: 0, match: 0, conf: new Map() };
@@ -97,7 +120,8 @@ for (const trueType of TYPE_LIST) {
   for (let k = 0; k < ROUNDS; k += 1) {
     const profile = presetProfile(trueType, { jitter: JITTER, rng });
     const answers = answersFromProfile(profile, rng);
-    const res = evaluate(answers);
+    const pairs = pairsFromProfile(profile, rng);
+    const res = evaluateWith(answers, pairs);
     const row = rows[trueType];
     row.n += 1; total += 1;
     predDist[res.type] += 1;
@@ -108,9 +132,7 @@ for (const trueType of TYPE_LIST) {
     const ov = res.ranking.slice(0, 4).filter((f) => TYPES[trueType].stack.includes(f)).length;
     row.overlap += ov; overlapSum += ov;
     row.match += res.match;
-    if (!ok) {
-      row.conf.set(res.type, (row.conf.get(res.type) || 0) + 1);
-    }
+    if (!ok) row.conf.set(res.type, (row.conf.get(res.type) || 0) + 1);
     for (const f of FUNCTION_ORDER) fnPairs[f].push([res.scores[f].pct, profile[f]]);
   }
 }
@@ -137,3 +159,25 @@ console.log(`\n总命中: ${(hit / total * 100).toFixed(1)}%   前三: ${(top3 /
 console.log(`八维还原相关: ${FUNCTION_ORDER.map((f) => `${f} ${fnR[f].toFixed(2)}`).join('  ')}  平均 ${avgR.toFixed(3)}`);
 console.log(`八维平均绝对误差: ${FUNCTION_ORDER.map((f) => `${f} ${fnMae[f].toFixed(1)}`).join('  ')}  平均 ${avgMae.toFixed(1)} 分`);
 console.log(`预测类型分布: ${TYPE_LIST.map((t) => `${t} ${predDist[t]}`).join('  ')}`);
+
+// ---------- C. Fi/Fe 偏差场景 ----------
+console.log('\n=== C. Fi/Fe 偏差校正（Fe 主导者把 Fi 题打得偏高）===');
+const biasRng = mulberry32(778899);
+for (const trueType of ['ENFJ', 'ESFJ']) {
+  const without = [];
+  const withPairs = [];
+  for (let k = 0; k < ROUNDS; k += 1) {
+    const profile = presetProfile(trueType, { jitter: JITTER, rng: biasRng });
+    // 模拟社会赞许偏差：Fi 题统一 +1.2 分
+    const answers = answersFromProfile(profile, biasRng, { fiBias: 1.2 });
+    const pairs = pairsFromProfile(profile, biasRng);
+    without.push(evaluateWith(answers, null));
+    withPairs.push(evaluateWith(answers, pairs));
+  }
+  const s0 = summarize(without, trueType);
+  const s1 = summarize(withPairs, trueType);
+  const top0 = [...new Set(without.map((r) => r.type))].slice(0, 4).join('/');
+  const top1 = [...new Set(withPairs.map((r) => r.type))].slice(0, 4).join('/');
+  console.log(`${trueType}: 无对照命中 ${(s0.hit * 100).toFixed(1)}%（常见判定 ${top0}） -> 有对照命中 ${(s1.hit * 100).toFixed(1)}%（常见判定 ${top1}）`);
+  console.log(`  主导功能命中: 无对照 ${(s0.dom * 100).toFixed(1)}% -> 有对照 ${(s1.dom * 100).toFixed(1)}%`);
+}

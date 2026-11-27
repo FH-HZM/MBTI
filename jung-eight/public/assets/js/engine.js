@@ -1,5 +1,5 @@
 // 计分引擎：八维得分、类型判定、契合度与影子功能
-import { QUESTIONS, FUNCTIONS, FUNCTION_ORDER } from './questions.js';
+import { QUESTIONS, FUNCTIONS, FUNCTION_ORDER, PAIR_QUESTIONS } from './questions.js';
 import { TYPES, TYPE_LIST, ROLE_LABELS } from './types.js';
 
 export const OPPOSITE = { Ne: 'Ni', Ni: 'Ne', Se: 'Si', Si: 'Se', Te: 'Ti', Ti: 'Te', Fe: 'Fi', Fi: 'Fe' };
@@ -32,7 +32,31 @@ export function buildTemplates(weights = DEFAULT_WEIGHTS) {
 
 const QUESTION_FN = Object.fromEntries(QUESTIONS.map((q) => [q.id, q.fn]));
 
-export function scoreFunctions(answers) {
+// 对照题占最终八维分的权重。行为频率题容易被“场景机会”影响，
+// 对照题让相邻功能直接竞争，权重略低但足以校正 Fi/Fe 这类偏差。
+export const PAIR_WEIGHT = 0.28;
+
+// 0 = A 明显更像，1 = A 稍微更像，2 = B 稍微更像，3 = B 明显更像
+export function pairAdjustments(pairs) {
+  const sums = Object.fromEntries(FUNCTION_ORDER.map((f) => [f, 0]));
+  const counts = Object.fromEntries(FUNCTION_ORDER.map((f) => [f, 0]));
+  PAIR_QUESTIONS.forEach((p, i) => {
+    const v = Array.isArray(pairs) ? pairs[i] : null;
+    if (typeof v !== 'number' || v < 0 || v > 3) return;
+    const aDelta = v === 0 ? 2 : v === 1 ? 1 : v === 2 ? -1 : -2;
+    sums[p.a] += aDelta;
+    sums[p.b] -= aDelta;
+    counts[p.a] += 1;
+    counts[p.b] += 1;
+  });
+  const out = {};
+  for (const f of FUNCTION_ORDER) {
+    out[f] = counts[f] ? Math.round((sums[f] / (counts[f] * 2)) * 100) : null;
+  }
+  return out;
+}
+
+export function scoreFunctions(answers, pairs = null) {
   const sums = Object.fromEntries(FUNCTION_ORDER.map((f) => [f, 0]));
   const counts = Object.fromEntries(FUNCTION_ORDER.map((f) => [f, 0]));
   QUESTIONS.forEach((q, i) => {
@@ -42,17 +66,22 @@ export function scoreFunctions(answers) {
       counts[q.fn] += 1;
     }
   });
+  const pair = pairAdjustments(pairs);
   const scores = {};
   for (const f of FUNCTION_ORDER) {
     const n = counts[f] || 1;
     const raw = sums[f];
-    scores[f] = {
-      raw,
-      count: counts[f],
-      pct: Math.round((raw / (4 * n)) * 100),
-    };
+    const likertPct = Math.round((raw / (4 * n)) * 100);
+    const adj = pair[f];
+    const pct = adj === null
+      ? likertPct
+      : Math.round(likertPct * (1 - PAIR_WEIGHT) + (50 + adj / 2) * PAIR_WEIGHT);
+    scores[f] = { raw, count: counts[f], likertPct, pct, pair: adj };
   }
-  return { scores, answered: QUESTIONS.filter((q, i) => typeof answers[i] === 'number').length };
+  const pairsAnswered = Array.isArray(pairs)
+    ? pairs.filter((v) => typeof v === 'number' && v >= 0 && v <= 3).length
+    : 0;
+  return { scores, answered: QUESTIONS.filter((q, i) => typeof answers[i] === 'number').length, pairsAnswered };
 }
 
 function zScores(values) {
@@ -147,8 +176,8 @@ export function shadowRoles(code) {
 }
 
 export function evaluate(answers, options = {}) {
-  const { strategy = 'template', weights = DEFAULT_WEIGHTS } = options;
-  const { scores, answered } = scoreFunctions(answers);
+  const { strategy = 'template', weights = DEFAULT_WEIGHTS, pairs = null } = options;
+  const { scores, answered, pairsAnswered } = scoreFunctions(answers, pairs);
   const rel = relativeScores(scores);
   const letter = classifyByLetters(scores);
   const fits = templateFits(scores, weights);
@@ -186,6 +215,8 @@ export function evaluate(answers, options = {}) {
     rel,
     ranking,
     answered,
+    pairsAnswered,
+    pairApplied: pairsAnswered > 0,
     letter,
     fits: orderedFits.slice(0, 4),
     type: typeCode,
@@ -215,4 +246,4 @@ export function answerQuestion(question, latent, rng, bias = 0, noise = 0.78) {
   return Math.max(0, Math.min(4, Math.round(value)));
 }
 
-export { QUESTIONS, FUNCTIONS, FUNCTION_ORDER, TYPES, TYPE_LIST };
+export { QUESTIONS, FUNCTIONS, FUNCTION_ORDER, PAIR_QUESTIONS, TYPES, TYPE_LIST };
